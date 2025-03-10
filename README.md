@@ -12,4 +12,4 @@
 
 
 # Dependencies
-pip install git+https://github.com/facebookresearch/audiocraft.git
+```pip install git+https://github.com/facebookresearch/audiocraft.git```
