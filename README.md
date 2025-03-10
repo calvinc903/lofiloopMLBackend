@@ -1,7 +1,7 @@
 
 # Creating new virtual nev
 1. python3.10 -m venv venv
-2. source venv/bin/activate
+2.(MAC) source venv/bin/activate | (Windows) venv\Scripts\Activate
 
 
 
