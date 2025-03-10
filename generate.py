@@ -24,12 +24,12 @@ def generate_music_from_text(description, output_path="output", duration=30):
 
     start_time = time.time()
 
-    wav = model.generate([description])  # Generate from text only
+    wav = model.generate([description])[0]  # Generate from text only
 
     end_time = time.time()
     print(f"Track generation took {end_time - start_time:.2f} seconds.")
 
-    output_file = f"{output_path}.wav"
+    output_file = f"{output_path}"
     audio_write(output_file, wav[0].cpu(), model.sample_rate, strategy="loudness")
 
     print(f"Generated track saved at: {output_file}")
@@ -61,12 +61,12 @@ def generate_music_from_audio(melody_path, output_path="output", duration=30):
     start_time = time.time()
 
     # Generate from melody only (empty text prompt)
-    wav = model.generate_with_chroma([""], melody[None], sr)
+    wav = model.generate_with_chroma([""], melody[None], sr)[0]
 
     end_time = time.time()
     print(f"Track generation took {end_time - start_time:.2f} seconds.")
 
-    output_file = f"{output_path}.wav"
+    output_file = f"{output_path}"
     audio_write(output_file, wav[0].cpu(), model.sample_rate, strategy="loudness")
 
     print(f"Generated track saved at: {output_file}")

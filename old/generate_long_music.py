@@ -58,8 +58,8 @@ def generate_long_music(description, output_path="long_music", total_duration=24
     final_audio = torch.cat(generated_audio, dim=1)
 
     # Save the final generated audio clip
-    output_file = f"{output_path}.wav"
+    output_file = f"{output_path}"
     audio_write(output_file, final_audio, model.sample_rate, strategy="loudness")
 
-    print(f"Generated track saved at: {output_file}")
+    print(f"Generated track saved at: {output_file}.wav")
     return output_file
