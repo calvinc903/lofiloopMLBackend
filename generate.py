@@ -3,6 +3,7 @@ import torch
 import time
 from audiocraft.models import MusicGen
 from audiocraft.data.audio import audio_write
+from audiocraft.utils.notebook import display_audio
 
 def generate_music_from_text(description, output_path="output", duration=30):
     """
@@ -36,72 +37,39 @@ def generate_music_from_text(description, output_path="output", duration=30):
     return output_file
 
 
-def generate_music_from_audio(melody_path, output_path="output", duration=30):
+def generate_music_continuation(input_wav, model_name='facebook/musicgen-melody', progress=True):
     """
-    Generates music based only on an input melody.
+    Generates a continuation of the given input lofi audio file.
 
     Parameters:
-    - melody_path (str): Path to the melody audio file.
-    - output_path (str): Path to save the generated output.
-    - duration (int): Duration of generated audio in seconds.
+    - input_wav (str): Path to the input .wav file (must be at least 20 seconds long).
+    - model_name (str): Pretrained MusicGen model to use.
+    - progress (bool): Whether to show generation progress.
 
     Returns:
-    - str: Path to the saved generated audio file.
+    - Tensor: Generated audio waveform.
     """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
-    model = MusicGen.get_pretrained('facebook/musicgen-melody')
-    model.set_generation_params(duration=duration)
+    # Load the pretrained MusicGen model
+    model = MusicGen.get_pretrained(model_name)
 
-    # Load melody and move it to the correct device
-    melody, sr = torchaudio.load(melody_path)
-    melody = melody.to(device)
+    # Load the input lofi audio
+    prompt_waveform, prompt_sr = torchaudio.load(input_wav)
+    num_samples = prompt_waveform.shape[1]
 
-    start_time = time.time()
+    # Ensure audio is at least 20 seconds long
+    last_20_sec_samples = int(20 * prompt_sr)
+    if num_samples < last_20_sec_samples:
+        raise ValueError(f"Input audio must be at least 20 seconds long, but got {num_samples / prompt_sr:.2f} seconds.")
 
-    # Generate from melody only (empty text prompt)
-    wav = model.generate_with_chroma([""], melody[None], sr)[0]
+    # Trim to the last 20 seconds
+    prompt_waveform = prompt_waveform[:, -last_20_sec_samples:]
 
-    end_time = time.time()
-    print(f"Track generation took {end_time - start_time:.2f} seconds.")
+    # Generate continuation with lofi mood in mind
+    output = model.generate_continuation(prompt_waveform, prompt_sample_rate=prompt_sr, progress=progress)
 
-    output_file = f"{output_path}"
-    audio_write(output_file, wav[0].cpu(), model.sample_rate, strategy="loudness")
-
-    print(f"Generated track saved at: {output_file}")
-    return output_file
-
-
-
-def concatenate_tracks(track_paths, output_path="concatenated_output.wav"):
-    """
-    Concatenates multiple audio tracks sequentially.
-
-    Parameters:
-    - track_paths (list of str): List of paths to the audio files to concatenate.
-    - output_path (str): Path to save the final concatenated output.
-
-    Returns:
-    - str: Path to the saved concatenated audio file.
-    """
-    audio_chunks = []
-    sample_rate = None
-
-    for path in track_paths:
-        audio, sr = torchaudio.load(path)
-        if sample_rate is None:
-            sample_rate = sr  # Set sample rate from the first file
-        elif sr != sample_rate:
-            raise ValueError(f"Sample rate mismatch: {path} has {sr}, expected {sample_rate}")
-
-        audio_chunks.append(audio)
-
-    # Concatenate all audio chunks along the time dimension
-    final_audio = torch.cat(audio_chunks, dim=1)
-
-    # Save concatenated audio
-    torchaudio.save(output_path, final_audio, sample_rate)
-    
-    print(f"Concatenated track saved at: {output_path}")
-    return output_path
+    # Display and return the generated lofi track
+    display_audio(output, sample_rate=32000)
+    return output
