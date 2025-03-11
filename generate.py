@@ -37,39 +37,56 @@ def generate_music_from_text(description, output_path="output", duration=30):
     return output_file
 
 
-def generate_music_continuation(input_wav, model_name='facebook/musicgen-melody', progress=True):
+def generate_music_continuation(input_wav, model_name='facebook/musicgen-melody', progress=True, output_path=None, max_prompt_duration=10):
     """
     Generates a continuation of the given input lofi audio file.
 
     Parameters:
-    - input_wav (str): Path to the input .wav file (must be at least 20 seconds long).
+    - input_wav (str): Path to the input .wav file (must be at least max_prompt_duration seconds long).
     - model_name (str): Pretrained MusicGen model to use.
     - progress (bool): Whether to show generation progress.
+    - output_path (str, optional): Base name for the output file (without extension or with .wav).
+      If provided, the generated audio will be saved to this file.
+    - max_prompt_duration (int or float): Maximum duration in seconds of the prompt used for continuation.
 
     Returns:
-    - Tensor: Generated audio waveform.
+    - If output_path is provided: str, the path to the saved audio file.
+    - Otherwise: Tensor, the generated audio waveform.
     """
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # MusicGen doesn't support .to(), so we run everything on CPU.
+    device = "cpu"
     print(f"Using device: {device}")
 
-    # Load the pretrained MusicGen model
+    # Load the pretrained MusicGen model (remains on CPU)
     model = MusicGen.get_pretrained(model_name)
-
-    # Load the input lofi audio
+    
+    # Load the input audio
     prompt_waveform, prompt_sr = torchaudio.load(input_wav)
     num_samples = prompt_waveform.shape[1]
 
-    # Ensure audio is at least 20 seconds long
-    last_20_sec_samples = int(20 * prompt_sr)
-    if num_samples < last_20_sec_samples:
-        raise ValueError(f"Input audio must be at least 20 seconds long, but got {num_samples / prompt_sr:.2f} seconds.")
+    # Calculate the number of samples corresponding to max_prompt_duration
+    required_samples = int(max_prompt_duration * prompt_sr)
+    if num_samples < required_samples:
+        raise ValueError(f"Input audio must be at least {max_prompt_duration} seconds long, but got {num_samples / prompt_sr:.2f} seconds.")
 
-    # Trim to the last 20 seconds
-    prompt_waveform = prompt_waveform[:, -last_20_sec_samples:]
+    # Trim the prompt to the last max_prompt_duration seconds
+    prompt_waveform = prompt_waveform[:, -required_samples:]
 
-    # Generate continuation with lofi mood in mind
+    # Generate continuation (the prompt tokens should now be within the acceptable range)
     output = model.generate_continuation(prompt_waveform, prompt_sample_rate=prompt_sr, progress=progress)
+    
+    # Optionally display the generated audio if a display function is defined.
+    try:
+        display_audio(output, sample_rate=32000)
+    except NameError:
+        pass  # display_audio is not defined
 
-    # Display and return the generated lofi track
-    display_audio(output, sample_rate=32000)
+    # If an output_path is provided, save the generated audio to a WAV file.
+    if output_path:
+        if not output_path.endswith(".wav"):
+            output_path = f"{output_path}.wav"
+        sample_rate = getattr(model, "sample_rate", 32000)
+        torchaudio.save(output_path, output.cpu().detach(), sample_rate)
+        return output_path
+
     return output

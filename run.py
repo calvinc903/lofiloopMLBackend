@@ -1,4 +1,5 @@
-from generate import generate_music_from_text, generate_music_continuation, concatenate_tracks
+from generate import generate_music_from_text, generate_music_continuation
+from trackModification import concatenate_tracks
 import os
 import time
 
