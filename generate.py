@@ -1,58 +1,80 @@
+#!/usr/bin/env python
+"""
+This file defines a generate_long_music() method that uses the MusicGen model
+to generate exactly 4 minutes (240 seconds) of music using a 20-second generation window,
+with progress logging and an optional song sample input. The generated audio is saved as a WAV file.
+"""
 
 import torch
+import torchaudio
+from audiocraft.models import MusicGen  # Adjust this import if your package structure differs
 
-from audiocraft.models import MusicGen
-
-
-import torch
-from audiocraft.models import MusicGen
-
-
-def generate_long_music(prompt, total_duration=120, segment_duration=30, overlap_duration=20, model_name='facebook/musicgen-melody'):
+def generate_long_music(prompt: str, sample_path: str = None) -> torch.Tensor:
     """
-    Generates a long music track using a sliding window approach.
+    Generate exactly 4 minutes of music using a 20-second window per generation step,
+    optionally conditioned on an input song sample, with progress logging.
 
-    Parameters:
-    - prompt (str): Text prompt describing the desired music.
-    - total_duration (int): Total length of the generated music in seconds.
-    - segment_duration (int): Duration of each generated segment in seconds.
-    - overlap_duration (int): Overlap between consecutive segments in seconds.
-    - model_name (str): Name of the pretrained MusicGen model to use.
-
+    Args:
+        prompt (str): A text string used to condition the generation.
+        sample_path (str, optional): Path to a song sample file to be used for melody conditioning.
+                                     If None, only text conditioning is used.
     Returns:
-    - torch.Tensor: Generated waveform tensor.
-    - int: Sample rate of the generated audio.
+        torch.Tensor: The generated audio tensor of shape [B, C, T].
     """
-    assert overlap_duration < segment_duration, "Overlap must be less than segment duration."
-    step_size = segment_duration - overlap_duration
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Define a custom progress callback that converts generated token count into a duration-based percentage.
+    def progress_callback(generated_tokens: int, total_tokens: int):
+        current_seconds = generated_tokens / model.frame_rate
+        progress_percentage = (current_seconds / 240) * 100
+        print(f"Generated duration: {current_seconds:.2f}s ({progress_percentage:.2f}%)", end='\r')
+    
+    # Load the pretrained MusicGen model (using the 'melody' variant).
+    model = MusicGen.get_pretrained(name="melody")
+    
+    # Override the maximum generation window to 20 seconds.
+    model.max_duration = 20
+    
+    # Set generation parameters:
+    #   - Total duration: 240 seconds (4 minutes)
+    #   - extend_stride: 15 seconds (must be less than max_duration)
+    model.set_generation_params(duration=240, extend_stride=15)
+    
+    # Set the progress callback.
+    model.set_custom_progress_callback(progress_callback)
+    
+    # Generate audio using text conditioning only or with an additional song sample.
+    if sample_path is not None:
+        # Load the song sample using torchaudio.
+        melody_wav, melody_sample_rate = torchaudio.load(sample_path)
+        # generate_with_chroma expects a list of text descriptions, a melody sample, and its sample rate.
+        generated_audio = model.generate_with_chroma([prompt], melody_wav, melody_sample_rate, progress=True)
+    else:
+        generated_audio = model.generate([prompt], progress=True)
+    
+    print()  # Print newline after progress logging.
+    return generated_audio
 
-    # Load the pretrained MusicGen model
-    model = MusicGen.get_pretrained(model_name)
-    model.set_generation_params(duration=segment_duration)
+def save_audio(audio: torch.Tensor, sample_rate: int, filename: str):
+    """
+    Save a torch.Tensor representing audio to a WAV file.
 
-    # Initialize
-    generated_audio = []
-    current_prompt = prompt
-    num_segments = (total_duration - overlap_duration) // step_size
+    Args:
+        audio (torch.Tensor): Audio tensor of shape [B, C, T]. This function saves the first sample.
+        sample_rate (int): The sample rate of the audio.
+        filename (str): The output filename.
+    """
+    waveform = audio[0].cpu()  # Use the first audio sample in the batch.
+    torchaudio.save(filename, waveform, sample_rate)
+    print(f"Audio saved to {filename}")
 
-    for i in range(num_segments):
-        print(f"Generating segment {i + 1}/{num_segments}...")
-
-        if isinstance(current_prompt, str):
-            # Generate the initial segment from the text prompt
-            segment = model.generate([current_prompt])[0].to(device)
-        else:
-            # Generate continuation based on the audio prompt
-            segment = model.generate_continuation(current_prompt, prompt_sample_rate=model.sample_rate, progress=True)[0].to(device)
-
-        generated_audio.append(segment)
-
-        if i < num_segments - 1:
-            # Update prompt for next segment: use the last 'overlap_duration' seconds of the current segment
-            current_prompt = segment[:, -overlap_duration * model.sample_rate:]
-
-    # Concatenate all segments
-    full_audio = torch.cat(generated_audio, dim=-1)
-
-    return full_audio, model.sample_rate
+if __name__ == "__main__":
+    # Example usage:
+    prompt_text = "Lofi slow bpm electro chill with organic samples."
+    # Provide a valid sample song file path or set to None to use only text conditioning.
+    sample_path = "assets/lofi1.mp3"  # Replace with your file path or use None
+    
+    audio = generate_long_music(prompt_text, sample_path)
+    print("Generated audio shape:", audio.shape)
+    
+    # Save the generated audio. Adjust sample_rate if needed (model's sample rate is preferable).
+    sample_rate = 44100
+    save_audio(audio, sample_rate, "generated_music.wav")

@@ -1,27 +1,42 @@
-from generate import generate_music_from_text, generate_music_continuation, generate_long_music
-from trackModification import concatenate_tracks
-import os
-import torchaudio
-import time
+def generate_long_music(prompt: str):
+    """
+    Generate exactly 4 minutes (240 seconds) of music conditioned on a text prompt,
+    using a 20-second generation window.
+    
+    Args:
+        prompt (str): The text prompt to condition music generation.
+    
+    Returns:
+        torch.Tensor: A tensor containing the generated audio waveform.
+        
+    Note:
+        This function assumes that the MusicGen class (and its dependencies)
+        are available in the import path.
+    """
+    # Get the pretrained model. Here we use the "melody" model and let it select the device.
+    model = MusicGen.get_pretrained(name="melody", device="cuda")
+    
+    # Override the maximum generation duration (window) to 20 seconds.
+    model.max_duration = 20  # 20-second generation window
+    
+    # Set generation parameters:
+    # - duration: total desired generation length (240 seconds = 4 minutes)
+    # - extend_stride: stride for iterative generation (here we use 18 seconds so that there is slight overlap).
+    model.set_generation_params(duration=240, two_step_cfg=False, extend_stride=18)
+    
+    # Generate audio conditioned on the prompt. The generate() method expects a list of prompts.
+    audio = model.generate([prompt], progress=True)
+    
+    return audio
 
 
-# # Step 1: Generate a track from text description
-# description = "Lofi slow bpm electro chill with organic samples"
-# first_track = generate_music_from_text(description, output_path="text_generated_track", duration=30)
-
-# time.sleep(2)
-
-# # Step 2: Use the first generated track as input to generate a new track
-# first_track += ".wav"
-# second_track = generate_music_continuation("text_generated_track.wav", output_path="continued_music", duration=30)
-
-# second_track += ".wav"
-# # Step 3: Combine both tracks into a final result
-# final_track = concatenate_tracks([first_track, second_track], output_path="final_combined_lofi")
-
-# print(f"Final combined track saved at: {final_track}")
-
-
-prompt = "Lofi slow bpm electro chill with organic samples."
-waveform, sample_rate = generate_long_music(prompt)
-torchaudio.save("long_generated_music.wav", waveform.cpu(), sample_rate)
+# If run.py is executed as the main program, you can add a simple test:
+if __name__ == "__main__":
+    # Example prompt – change as desired.
+    prompt_text = "A soothing, ambient melody with gentle piano and soft strings."
+    generated_audio = generate_long_music(prompt_text)
+    
+    # At this point, 'generated_audio' is a torch.Tensor containing the audio waveform.
+    # For example, you might want to save it to a file using your preferred audio library.
+    # (No additional imports are used in this file.)
+    print("Long music generation complete.")
