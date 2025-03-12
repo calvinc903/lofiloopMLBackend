@@ -1,4 +1,4 @@
-from generate import generate_music_from_text, generate_music_continuation, generate_long_music
+from generate_textandaudioinput import generate_music_from_text, generate_music_continuation, generate_long_music
 from trackModification import concatenate_tracks
 import os
 import torchaudio
