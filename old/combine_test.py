@@ -1,4 +1,4 @@
-from trackModification import concatenate_tracks
+from old.trackModification import concatenate_tracks
 
 
 final_track = concatenate_tracks(["text_generated_track.wav", "continued_music.wav"], output_path="final_combined_lofi")
