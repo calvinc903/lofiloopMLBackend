@@ -1,0 +1,69 @@
+def generate_music_from_audio(melody_path, output_path="output", duration=30):
+    """
+    Generates music based only on an input melody.
+
+    Parameters:
+    - melody_path (str): Path to the melody audio file.
+    - output_path (str): Path to save the generated output.
+    - duration (int): Duration of generated audio in seconds.
+
+    Returns:
+    - str: Path to the saved generated audio file.
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    model = MusicGen.get_pretrained('facebook/musicgen-melody')
+    model.set_generation_params(duration=duration)
+
+    # Load melody and move it to the correct device
+    melody, sr = torchaudio.load(melody_path)
+    melody = melody.to(device)
+
+    start_time = time.time()
+
+    # Generate from melody only (empty text prompt)
+    wav = model.generate_with_chroma([""], melody[None], sr)[0]
+
+    end_time = time.time()
+    print(f"Track generation took {end_time - start_time:.2f} seconds.")
+
+    output_file = f"{output_path}"
+    audio_write(output_file, wav[0].cpu(), model.sample_rate, strategy="loudness")
+
+    print(f"Generated track saved at: {output_file}")
+    return output_file
+
+
+
+def concatenate_tracks(track_paths, output_path="concatenated_output.wav"):
+    """
+    Concatenates multiple audio tracks sequentially.
+
+    Parameters:
+    - track_paths (list of str): List of paths to the audio files to concatenate.
+    - output_path (str): Path to save the final concatenated output.
+
+    Returns:
+    - str: Path to the saved concatenated audio file.
+    """
+    audio_chunks = []
+    sample_rate = None
+
+    for path in track_paths:
+        audio, sr = torchaudio.load(path)
+        if sample_rate is None:
+            sample_rate = sr  # Set sample rate from the first file
+        elif sr != sample_rate:
+            raise ValueError(f"Sample rate mismatch: {path} has {sr}, expected {sample_rate}")
+
+        audio_chunks.append(audio)
+
+    # Concatenate all audio chunks along the time dimension
+    final_audio = torch.cat(audio_chunks, dim=1)
+
+    # Save concatenated audio
+    torchaudio.save(output_path, final_audio, sample_rate)
+    
+    print(f"Concatenated track saved at: {output_path}")
+    return output_path
