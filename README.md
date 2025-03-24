@@ -3,7 +3,7 @@
 python api/app.py
 
 # Start Ghrok Server
-
+ngrok http 5000
 
 # Creating new virtual nev
 1. python3.10 -m venv venv
