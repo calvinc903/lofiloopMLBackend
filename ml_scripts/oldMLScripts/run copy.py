@@ -1,4 +1,4 @@
-from generate_textandaudioinput import generate_music_from_text, generate_music_continuation, generate_long_music
+from ml_scripts.oldMLScripts.generate_textandaudioinput import generate_music_from_text, generate_music_continuation, generate_long_music
 from old.trackModification import concatenate_tracks
 import os
 import torchaudio

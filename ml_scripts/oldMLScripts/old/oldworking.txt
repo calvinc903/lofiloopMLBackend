@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+"""
+This file defines a generate_long_music() method that uses the MusicGen model
+to generate exactly 4 minutes (240 seconds) of music using a 20-second generation window,
+with progress logging. The generated audio is returned as a torch.Tensor.
+Other code relying on this method will continue to work without modification.
+"""
+
+import torch
+import torchaudio
+from audiocraft.models import MusicGen  # Adjust this import if your package structure differs
+
+# Global dictionary to track generation progress per song.
+song_progress = {}
+
+def generate_long_music(prompt: str, song_id: str) -> torch.Tensor:
+    """
+    Generate exactly 4 minutes (240 seconds) of music using a 20-second generation window,
+    while logging progress to the console.
+
+    Args:
+        prompt (str): A text string used to condition the generation.
+        song_id (str): A unique identifier for this generation job (for progress tracking).
+
+    Returns:
+        torch.Tensor: The generated audio tensor of shape [B, C, T].
+    """
+    # Define a progress callback function.
+    def progress_callback(generated_tokens: int, total_tokens: int):
+        # Convert generated tokens to seconds (assumes model.frame_rate provides this conversion).
+        current_seconds = generated_tokens / model.frame_rate
+        progress_percentage = (current_seconds / 240) * 100
+        song_progress[song_id] = {
+            'duration': current_seconds,
+            'progress': progress_percentage
+        }
+        print(f"Generated duration: {current_seconds:.2f}s ({progress_percentage:.2f}%)", end='\r')
+
+    # Load the MusicGen model (using the melody version here).
+    model = MusicGen.get_pretrained(name="facebook/musicgen-melody")
+
+    # Configure the model:
+    # - Use internal segments of 30 seconds.
+    # - Generate a total of 240 seconds of music using a 20-second extend stride.
+    model.max_duration = 30
+    model.set_generation_params(duration=240, extend_stride=20)
+    model.set_custom_progress_callback(progress_callback)
+
+    # Generate the audio using the provided text prompt.
+    generated_audio = model.generate([prompt], progress=True)
+    print()  # Move to the next line after progress updates.
+
+    return generated_audio
+
+def save_audio(audio: torch.Tensor, sample_rate: int, filename: str):
+    """
+    Save a torch.Tensor representing audio to a WAV file.
+
+    Args:
+        audio (torch.Tensor): Audio tensor of shape [B, C, T]. This function saves the first sample.
+        sample_rate (int): The sample rate of the audio.
+        filename (str): The output filename.
+    """
+    # Ensure the tensor is on CPU and select the first sample in the batch.
+    waveform = audio[0].cpu()  # waveform shape should be [C, T]
+    torchaudio.save(filename, waveform, sample_rate)
+    print(f"Audio saved to {filename}")
+
+# Example usage:
+if __name__ == "__main__":
+    prompt_text = (
+        "Create a soft, melancholic yet soothing lofi hip-hop track, reminiscent of Lofi Girl’s signature study beats, "
+        "with a warm, nostalgic atmosphere and a slight jazzy influence, evoking the feeling of studying late at night."
+    )
+    song_id = "song_001"  # Unique identifier for progress tracking
+
+    # Generate the long music audio tensor.
+    audio = generate_long_music(prompt_text, song_id)
+    print("Generated audio shape:", audio.shape)
+
+    # Save the generated audio to a WAV file.
+    # Adjust the sample rate as needed (here we assume 44100 Hz).
+    sample_rate = 44100
+    output_filename = "generated_music.wav"
+    save_audio(audio, sample_rate, output_filename)
