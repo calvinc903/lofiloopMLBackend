@@ -1,6 +1,6 @@
 
 # Start Flask API
-python api/app.py
+python app.py
 
 # Start Ghrok Server
 ngrok http 5000
@@ -26,3 +26,9 @@ pip freeze > requirements.txt
 
 ## Install requirements.txt
 pip install -r requirements.txt
+
+
+
+
+hypercorn api.app:app --bind 0.0.0.0:5000
+

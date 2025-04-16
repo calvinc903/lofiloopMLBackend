@@ -10,6 +10,7 @@ import random
 import torch
 import torchaudio
 import numpy as np
+import time
 
 from audiocraft.models import MusicGen
 
@@ -36,13 +37,13 @@ def load_model():
     model = MusicGen.get_pretrained(name="facebook/musicgen-melody")
     return model
 
-def progress_callback(generated_tokens: int, total_tokens: int, song_id: str, model):
+def progress_callback(generated_tokens: int, total_tokens: int, song_id: str, model, song_progress):
     """Update and print generation progress."""
     current_seconds = generated_tokens / model.frame_rate
     progress_percentage = (current_seconds / 240) * 100
     song_progress[song_id] = {
-        'duration': current_seconds,
-        'progress': progress_percentage
+        'duration': round(current_seconds, 2),
+        'progress': round(progress_percentage, 2)
     }
     print(f"Generated duration: {current_seconds:.2f}s ({progress_percentage:.2f}%)", end="\r")
 
@@ -55,33 +56,28 @@ def initial_generate(model, prompt: str, generation_window: int):
 def cosine_crossfade(audio1, audio2, overlap_length, noise_injection=0.0):
     """
     Apply cosine crossfade between two audio tensors with optional noise injection.
-    
+
     Args:
         audio1 (torch.Tensor): Previous audio [B, C, T]
         audio2 (torch.Tensor): New audio [B, C, T]
         overlap_length (int): Overlap length in samples.
         noise_injection (float): Standard deviation of noise to add during crossfade.
-    
+
     Returns:
         torch.Tensor: Blended audio of shape [B, C, T1 + T2 - overlap_length]
     """
-    # Create cosine fade curves.
     fade_out = 0.5 * (1 + torch.cos(torch.linspace(0, torch.pi, steps=overlap_length, device=audio1.device)))
     fade_in = 1 - fade_out
 
-    # Optionally add a small amount of noise to the fade_in curve.
     if noise_injection > 0:
         noise = torch.randn_like(audio1[:, :, -overlap_length:]) * noise_injection
-        fade_in = fade_in + noise
-        fade_in = torch.clamp(fade_in, 0, 1)  # Ensure values stay between 0 and 1.
+        fade_in = torch.clamp(fade_in + noise, 0, 1)
 
-    # Apply fades to the overlap regions.
     audio1_overlap = audio1[:, :, -overlap_length:] * fade_out
     audio2_overlap = audio2[:, :, :overlap_length] * fade_in
 
     blended_overlap = audio1_overlap + audio2_overlap
 
-    # Concatenate non-overlapping parts with the blended overlap.
     result = torch.cat([
         audio1[:, :, :-overlap_length],
         blended_overlap,
@@ -89,49 +85,49 @@ def cosine_crossfade(audio1, audio2, overlap_length, noise_injection=0.0):
     ], dim=2)
     return result
 
-def generate_long_music(prompt: str, song_id: str) -> torch.Tensor:
+def generate_long_music(prompt: str, song_id: str, model=None, song_progress=None) -> torch.Tensor:
     """
     Generate 4 minutes (240 seconds) of music in 30-second chunks with improved transitions.
-    
-    Uses a dynamically adjusted prompt (3-second overlap) and cosine crossfade.
     """
     set_seed(42)
-    model = load_model()
-    sr = model.sample_rate
 
-    final_duration = 240         # Total duration in seconds (4 minutes)
-    generation_window = 30       # Each generation step is 30 seconds
-    overlap_seconds = 3          # Overlap duration for crossfade and as prompt for continuation
+    if model is None:
+        model = load_model()  # Safe fallback
+
+    if song_progress is None:
+        raise ValueError("song_progress dictionary must be provided")
+
+    sr = model.sample_rate
+    final_duration = 30
+    generation_window = 30
+    overlap_seconds = 3
     overlap_samples = sr * overlap_seconds
 
-    # Configure the model's generation parameters.
     model.set_generation_params(
         use_sampling=True,
-        top_k=250,
+        top_k=100,
         top_p=0,
         temperature=1.0,
         cfg_coef=3.0,
         duration=generation_window,
     )
 
-    # Set custom progress callback.
-    model.set_custom_progress_callback(lambda gen, tot: progress_callback(gen, tot, song_id, model))
+    model.set_custom_progress_callback(
+        lambda gen, tot: progress_callback(gen, tot, song_id, model, song_progress)
+    )
 
     print(f"Starting long-form generation for song '{song_id}'")
     print(f"Generation window: {generation_window}s, Overlap/Prompt: {overlap_seconds}s (cosine crossfade)")
 
-    # Generate the initial audio chunk.
     audio = initial_generate(model, prompt, generation_window)
     current_duration = generation_window
-    # Calculate how many additional iterations we need.
     total_iterations = (final_duration - generation_window) // generation_window
 
     print(f"Initial segment generated: {current_duration}s")
 
     for step in range(total_iterations):
-        # Use only the last 'overlap_seconds' of the current audio as the prompt for continuation.
         previous_chunk = audio[:, :, -sr * overlap_seconds:]
-        
+
         new_chunk = model.generate_continuation(
             previous_chunk,
             descriptions=[prompt],
@@ -140,14 +136,13 @@ def generate_long_music(prompt: str, song_id: str) -> torch.Tensor:
         )
         new_segment = new_chunk[:, :, -sr * generation_window:]
 
-        # Apply cosine crossfade with optional noise injection (set noise_injection to 0.0 to disable).
         audio = cosine_crossfade(audio, new_segment, overlap_samples, noise_injection=0.0001)
 
         current_duration = audio.shape[2] / sr
         progress = (current_duration / final_duration) * 100
         print(f"Progress: {current_duration:3.0f}s generated ({progress:5.1f}%)", end="\r")
 
-    print()  # Move to new line after progress logging.
+    print()
     total_samples = sr * final_duration
     audio = audio[:, :, :total_samples]
     print(f"Finished generation for song '{song_id}': {final_duration}s total.")
@@ -161,15 +156,21 @@ def save_audio(audio: torch.Tensor, sample_rate: int, filename: str):
     torchaudio.save(filename, waveform, sample_rate)
     print(f"Audio saved to {filename}")
 
-# Example usage:
+# ✅ ✅ ✅ Add this block so you can run directly
 if __name__ == "__main__":
     prompt_text = "Lofi Song with a soft, melancholic yet soothing lofi hip-hop track"
-    song_id = "song_001"
+    song_id = f"song_{int(time.time() * 1000)}"  # dynamic song id
 
-    audio = generate_long_music(prompt_text, song_id)
-    print("Generated audio shape:", audio.shape)
+    print(f"[INFO] Starting direct script run for song_id: {song_id}")
 
+    # Create a local progress dictionary for manual runs
+    local_progress = {}
     model = load_model()
-    sr = model.sample_rate
-    output_filename = "generated_music.wav"
-    save_audio(audio, sr, output_filename)
+
+    audio = generate_long_music(prompt_text, song_id, model=model, song_progress=local_progress)
+    sample_rate = model.sample_rate
+    output_filename = f"generated_music_{song_id}.wav"
+
+    save_audio(audio, sample_rate, output_filename)
+
+    print(f"[SUCCESS] Generation complete. File saved to: {output_filename}")
